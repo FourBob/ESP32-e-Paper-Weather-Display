@@ -29,10 +29,10 @@
 #include <U8g2_for_Adafruit_GFX.h>
 #include "epaper_fonts.h"
 #include "forecast_record.h"
-#include "lang.h"
+//#include "lang.h"
 //#include "lang_cz.h"                // Localisation (Czech)
 //#include "lang_fr.h"                // Localisation (French)
-//#include "lang_gr.h"                // Localisation (German)
+#include "lang_gr.h"                 // Localisation (German)
 //#include "lang_it.h"                // Localisation (Italian)
 //#include "lang_nl.h"                // Localisation (Dutch)
 //#include "lang_pl.h"                // Localisation (Polish)
@@ -55,11 +55,18 @@ static const uint8_t EPD_EN   = 12; // EPD power enable, active-LOW (LOW = on)
 static const uint8_t SD_CS    = 21; // SD chip select, keep HIGH
 static const uint8_t SD_EN    = 5;  // SD enable, keep HIGH
 
+// Battery measurement config (Paperd.ink)
+static const int   BATTERY_ADC_PIN = 39;   // GPIO39 (ADC1_CHANNEL_3)
+static const int   BATTERY_EN_PIN  = 25;   // Battery enable control pin
+static const int   CHARGE_IND_PIN  = 36;   // Charging indicator (LOW = charging)
+static const float BATTERY_SCALE   = 7.46; // Adjust if your divider differs
+
+
 // Connections for e.g. Waveshare ESP32 e-Paper Driver Board
 //static const uint8_t EPD_BUSY = 25;
 //static const uint8_t EPD_CS   = 15;
-//static const uint8_t EPD_RST  = 26; 
-//static const uint8_t EPD_DC   = 27; 
+//static const uint8_t EPD_RST  = 26;
+//static const uint8_t EPD_DC   = 27;
 //static const uint8_t EPD_SCK  = 13;
 //static const uint8_t EPD_MISO = 12; // Master-In Slave-Out not used, as no data from display
 //static const uint8_t EPD_MOSI = 14;
@@ -108,7 +115,16 @@ float humidity_readings[max_readings]    = {0};
 float rain_readings[max_readings]        = {0};
 float snow_readings[max_readings]        = {0};
 
-long SleepDuration = 30; // Sleep time in minutes, aligned to the nearest minute boundary, so if 30 will always update at 00 or 30 past the hour
+// ADC init for stable battery readings
+static void initBatteryADC() {
+  analogReadResolution(12);
+  analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db); // up to ~3.6V input to ADC (before divider)
+  pinMode(BATTERY_EN_PIN, OUTPUT);
+  digitalWrite(BATTERY_EN_PIN, HIGH); // enable battery measurement path
+  pinMode(CHARGE_IND_PIN, INPUT);
+}
+
+long SleepDuration = 120; // 2 Stunden (120 Minuten), Updates grob alle 2h, am Minutenraster ausgerichtet
 int  WakeupTime    = 7;  // Don't wakeup until after 07:00 to save battery power
 int  SleepTime     = 23; // Sleep after (23+1) 00:00 to save battery power
 
@@ -116,6 +132,7 @@ int  SleepTime     = 23; // Sleep after (23+1) 00:00 to save battery power
 void setup() {
   StartTime = millis();
   Serial.begin(115200);
+  initBatteryADC();
   if (StartWiFi() == WL_CONNECTED && SetupTime() == true) {
     if (CurrentHour >= WakeupTime && CurrentHour <= SleepTime ) {
       InitialiseDisplay(); // Give screen time to initialise by getting weather data!
@@ -174,10 +191,14 @@ void DisplayWeather() {                 // 4.2" e-paper display is 400x300 resol
 //#########################################################################################
 void DrawHeadingSection() {
   u8g2Fonts.setFont(u8g2_font_helvB08_tf);
+  int batteryX = SCREEN_WIDTH - 65; // Align battery (percent text RIGHT-aligned at x+65) to right edge
+  int batteryIconLeft = batteryX + 15; // left edge of battery outline
   drawString(SCREEN_WIDTH / 2, 0, City, CENTER);
-  drawString(SCREEN_WIDTH, 0, date_str, RIGHT);
+  // Date: RIGHT-aligned anchor 3px left of battery icon
+  int dateAnchorX = batteryIconLeft - 3; // RIGHT-aligned anchor for date
+  drawString(dateAnchorX, 0, date_str, RIGHT);
   drawString(4, 0, time_str, LEFT);
-  DrawBattery(65, 12);
+  DrawBattery(batteryX, 12);
   display.drawLine(0, 12, SCREEN_WIDTH, 12, GxEPD_BLACK);
 }
 //#########################################################################################
@@ -190,9 +211,9 @@ void DrawMainWeatherSection(int x, int y) {
   String Wx_Description = WxConditions[0].Forecast0;
   if (WxConditions[0].Forecast1 != "") Wx_Description += " & " +  WxConditions[0].Forecast1;
   if (WxConditions[0].Forecast2 != "" && WxConditions[0].Forecast1 != WxConditions[0].Forecast2) Wx_Description += " & " +  WxConditions[0].Forecast2;
-  drawStringMaxWidth(x - 170, y + 91, 28, TitleCase(Wx_Description), LEFT); // move content 8px down
+  drawStringMaxWidth(x - 170, y + 95, 28, TitleCase(Wx_Description), LEFT);
   DrawMainWx(x, y + 60);
-  display.drawRect(0, y + 76, 232, 48, GxEPD_BLACK); // move box 8px down
+  display.drawRect(0, y + 80, 232, 48, GxEPD_BLACK);
 }
 //#########################################################################################
 void DrawForecastSection(int x, int y) {
@@ -212,13 +233,15 @@ void DrawForecastSection(int x, int y) {
     }
     temperature_readings[r] = WxForecast[r].Temperature;
   }
-  display.drawLine(0, y + 172, SCREEN_WIDTH, y + 172, GxEPD_BLACK);
+  // Separator line removed; raise title by 4px
   u8g2Fonts.setFont(u8g2_font_helvB12_tf);
-  drawString(SCREEN_WIDTH / 2, y + 182, TXT_FORECAST_VALUES, CENTER); // moved 5px lower
+  drawString(SCREEN_WIDTH / 2, y + 181, TXT_FORECAST_VALUES, CENTER);
   u8g2Fonts.setFont(u8g2_font_helvB10_tf);
-  DrawGraph(SCREEN_WIDTH / 400 * 30,  SCREEN_HEIGHT / 300 * 221, SCREEN_WIDTH / 4, SCREEN_HEIGHT / 5, 900, 1050, Units == "M" ? TXT_PRESSURE_HPA : TXT_PRESSURE_IN, pressure_readings, max_readings, autoscale_on, barchart_off);
-  DrawGraph(SCREEN_WIDTH / 400 * 158, SCREEN_HEIGHT / 300 * 221, SCREEN_WIDTH / 4, SCREEN_HEIGHT / 5, 10, 30, Units == "M" ? TXT_TEMPERATURE_C : TXT_TEMPERATURE_F, temperature_readings, max_readings, autoscale_on, barchart_off);
-  DrawGraph(SCREEN_WIDTH / 400 * 288, SCREEN_HEIGHT / 300 * 221, SCREEN_WIDTH / 4, SCREEN_HEIGHT / 5, 0, 30, Units == "M" ? TXT_RAINFALL_MM : TXT_RAINFALL_IN, rain_readings, max_readings, autoscale_on, barchart_on);
+  // Increased graph height and removed day labels below
+  DrawGraph(SCREEN_WIDTH / 400 * 30,  SCREEN_HEIGHT / 300 * 221, SCREEN_WIDTH / 4, SCREEN_HEIGHT / 300 * 75, 900, 1050, Units == "M" ? TXT_PRESSURE_HPA : TXT_PRESSURE_IN, pressure_readings, max_readings, autoscale_on, barchart_off);
+  DrawGraph(SCREEN_WIDTH / 400 * 158, SCREEN_HEIGHT / 300 * 221, SCREEN_WIDTH / 4, SCREEN_HEIGHT / 300 * 75, 10, 30, Units == "M" ? TXT_TEMPERATURE_C : TXT_TEMPERATURE_F, temperature_readings, max_readings, autoscale_on, barchart_off);
+  // Position right graph so its box touches the right edge
+  DrawGraph(SCREEN_WIDTH - ((SCREEN_WIDTH / 4) + 3), SCREEN_HEIGHT / 300 * 221, SCREEN_WIDTH / 4, SCREEN_HEIGHT / 300 * 75, 0, 30, Units == "M" ? TXT_RAINFALL_MM : TXT_RAINFALL_IN, rain_readings, max_readings, autoscale_on, barchart_on);
 }
 //#########################################################################################
 void DrawForecastWeather(int x, int y, int index) {
@@ -309,16 +332,16 @@ void DisplayPrecipitationSection(int x, int y) {
 //#########################################################################################
 void DrawAstronomySection(int x, int y) {
   u8g2Fonts.setFont(u8g2_font_helvB08_tf);
-  display.drawRect(x, y + 72, 167, 48, GxEPD_BLACK); // move box 8px down
-  drawString(x + 7, y + 78, ConvertUnixTime(WxConditions[0].Sunrise + WxConditions[0].Timezone).substring(0, (Units == "M" ? 5 : 7)) + " " + TXT_SUNRISE, LEFT);
-  drawString(x + 7, y + 93, ConvertUnixTime(WxConditions[0].Sunset + WxConditions[0].Timezone).substring(0, (Units == "M" ? 5 : 7)) + " " + TXT_SUNSET, LEFT);
+  display.drawRect(x, y + 76, 167, 48, GxEPD_BLACK);
+  drawString(x + 7, y + 82, ConvertUnixTime(WxConditions[0].Sunrise + WxConditions[0].Timezone).substring(0, (Units == "M" ? 5 : 7)) + " " + TXT_SUNRISE, LEFT);
+  drawString(x + 7, y + 97, ConvertUnixTime(WxConditions[0].Sunset + WxConditions[0].Timezone).substring(0, (Units == "M" ? 5 : 7)) + " " + TXT_SUNSET, LEFT);
   time_t now = time(NULL);
   struct tm * now_utc = gmtime(&now);
   const int day_utc   = now_utc->tm_mday;
   const int month_utc = now_utc->tm_mon + 1;
   const int year_utc  = now_utc->tm_year + 1900;
-  drawString(x + 7, y + 108, MoonPhase(day_utc, month_utc, year_utc), LEFT);
-  DrawMoon(x + 105, y + 58, day_utc, month_utc, year_utc, Hemisphere);
+  drawString(x + 7, y + 112, MoonPhase(day_utc, month_utc, year_utc), LEFT);
+  DrawMoon(x + 105, y + 62, day_utc, month_utc, year_utc, Hemisphere);
 }
 //#########################################################################################
 void DrawMoon(int x, int y, int dd, int mm, int yy, String hemisphere) {
@@ -765,19 +788,32 @@ void Nodata(int x, int y, bool IconSize, String IconName) {
 }
 //#########################################################################################
 void DrawBattery(int x, int y) {
-  uint8_t percentage = 100;
-  float voltage = analogRead(35) / 4096.0 * 7.46;
-  if (voltage > 1 ) { // Only display if there is a valid reading
-    Serial.println("Voltage = " + String(voltage));
+  // Read battery voltage; always draw the icon even if reading invalid
+  int raw = analogRead(BATTERY_ADC_PIN);
+  float voltage = raw / 4095.0 * BATTERY_SCALE; // Paperd.ink divider scaling
+  bool valid = (voltage > 1.0);
+  uint8_t percentage = 0;
+  // If charging indicator is available and low, optionally show a charging hint
+  bool charging = (digitalRead(CHARGE_IND_PIN) == LOW);
+  if (valid) {
+    Serial.println("Voltage = " + String(voltage) + " (raw=" + String(raw) + ")");
     percentage = 2836.9625 * pow(voltage, 4) - 43987.4889 * pow(voltage, 3) + 255233.8134 * pow(voltage, 2) - 656689.7123 * voltage + 632041.7303;
     if (voltage >= 4.20) percentage = 100;
     if (voltage <= 3.50) percentage = 0;
-    display.drawRect(x + 15, y - 12, 19, 10, GxEPD_BLACK);
-    display.fillRect(x + 34, y - 10, 2, 5, GxEPD_BLACK);
-    display.fillRect(x + 17, y - 10, 15 * percentage / 100.0, 6, GxEPD_BLACK);
-    drawString(x + 65, y - 11, String(percentage) + "%", RIGHT);
-    //drawString(x + 13, y + 5,  String(voltage, 2) + "v", CENTER);
   }
+  // Battery outline and nub
+  display.drawRect(x + 15, y - 12, 19, 10, GxEPD_BLACK);
+  display.fillRect(x + 34, y - 10, 2, 5, GxEPD_BLACK);
+  // Fill level (only if valid reading)
+  if (valid) {
+    display.fillRect(x + 17, y - 10, 15 * percentage / 100.0, 6, GxEPD_BLACK);
+    String txt = String(percentage) + "%";
+    if (charging) txt += "+"; // small hint that device is charging
+    drawString(x + 65, y - 11, txt, RIGHT);
+  } else {
+    drawString(x + 65, y - 11, String("--%"), RIGHT);
+  }
+  //drawString(x + 13, y + 5,  String(voltage, 2) + "v", CENTER);
 }
 //#########################################################################################
 /* (C) D L BIRD
@@ -829,7 +865,7 @@ void DrawGraph(int x_pos, int y_pos, int gwidth, int gheight, float Y1Min, float
     if (barchart_mode) {
       x2 = x_pos + gx * (gwidth / readings) + 2;
       display.fillRect(x2, y2, (gwidth / readings) - 2, y_pos + gheight - y2 + 2, GxEPD_BLACK);
-    } 
+    }
     else
     {
       x2 = x_pos + gx * gwidth / (readings - 1) + 1; // max_readings is the global variable that sets the maximum data that can be plotted
@@ -855,17 +891,17 @@ void DrawGraph(int x_pos, int y_pos, int gwidth, int gheight, float Y1Min, float
         drawString(x_pos - 3, y_pos + gheight * spacing / y_minor_axis - 5, String((Y1Max - (float)(Y1Max - Y1Min) / y_minor_axis * spacing + 0.01), 0), RIGHT);
     }
   }
-  for (int i = 0; i <= 2; i++) {
-    drawString(15 + x_pos + gwidth / 3 * i, y_pos + gheight + 3, String(i), LEFT);
-  }
+  // Removed day labels under the graphs for cleaner layout
+  // for (int i = 0; i <= 2; i++) {
+  //   drawString(15 + x_pos + gwidth / 3 * i, y_pos + gheight + 3, String(i), LEFT);
+  // }
   drawString(x_pos + gwidth / 2, y_pos + gheight + 10, TXT_DAYS, CENTER);
 }
 //#########################################################################################
 void drawString(int x, int y, String text, alignment align) {
-  int16_t  x1, y1; //the bounds of x,y and w and h of the variable 'text' in pixels.
-  uint16_t w, h;
-  display.setTextWrap(false);
-  display.getTextBounds(text, x, y, &x1, &y1, &w, &h);
+  // Use u8g2 font metrics to compute width/height for correct alignment
+  int w = u8g2Fonts.getUTF8Width(text.c_str());
+  int h = u8g2Fonts.getFontAscent() - u8g2Fonts.getFontDescent();
   if (align == RIGHT)  x = x - w;
   if (align == CENTER) x = x - w / 2;
   u8g2Fonts.setCursor(x, y + h);
@@ -873,9 +909,8 @@ void drawString(int x, int y, String text, alignment align) {
 }
 //#########################################################################################
 void drawStringMaxWidth(int x, int y, unsigned int text_width, String text, alignment align) {
-  int16_t  x1, y1; //the bounds of x,y and w and h of the variable 'text' in pixels.
-  uint16_t w, h;
-  display.getTextBounds(text, x, y, &x1, &y1, &w, &h);
+  int w = u8g2Fonts.getUTF8Width(text.c_str());
+  int h = u8g2Fonts.getFontAscent() - u8g2Fonts.getFontDescent();
   if (align == RIGHT)  x = x - w;
   if (align == CENTER) x = x - w / 2;
   u8g2Fonts.setCursor(x, y);
@@ -883,6 +918,7 @@ void drawStringMaxWidth(int x, int y, unsigned int text_width, String text, alig
     u8g2Fonts.setFont(u8g2_font_helvB10_tf);
     text_width = 42;
     y = y - 3;
+    h = u8g2Fonts.getFontAscent() - u8g2Fonts.getFontDescent();
   }
   u8g2Fonts.println(text.substring(0, text_width));
   if (text.length() > text_width) {
@@ -935,10 +971,10 @@ void InitialiseDisplay() {
 
   Version 12.3
   1. Added 20-secs to allow for slow ESP32 RTC timers
-  
+
   Version 12.4
   1. Improved graph drawing function for negative numbers Line 808
-  
+
   Version 12.5
   1. Modified for GxEPD2 changes
 */

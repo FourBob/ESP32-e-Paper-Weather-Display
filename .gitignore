@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# PlatformIO build artifacts
+**/.pio/
+.pio/
+
+# Local secrets (do not commit)
+examples/**/owm_credentials.h
+
+# VSCode / IDE
+.vscode/
+.idea/
+
