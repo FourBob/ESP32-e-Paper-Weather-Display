@@ -10,7 +10,7 @@ Becomes:
 http://api.openweathermap.org/data/**3.0**/weather?q=Melksham,UK&APPID=your_OWM_API_key&mode=json&units=metric&cnt=1
 #############
 
-### API ### 
+### API ###
 April 2024
 
 OpenWeatherMap have depreciated City names and now calls to their API need to includeLatitude and Longitude data.
@@ -31,6 +31,24 @@ u8g2_font_helvB08_t**e**
 #############
 
 An ESP32 and an ePaper Display reads [Open Weather Map](https://openweathermap.org/) and displays the weather
+
+### Credentials & Secrets
+
+To run the examples you need a local owm_credentials.h per example. Real secrets are ignored by Git and must not be committed.
+
+- Waveshare 4.2" example:
+  - Copy examples/Waveshare_4_2/owm_credentials.example.h to examples/Waveshare_4_2/owm_credentials.h
+  - Fill in Wi‑Fi SSID/PASSWORD, OWM API key, and location (LAT/LON)
+
+- Paperd.ink 4.2" example:
+  - Copy examples/paperdink_bw_4_2/owm_credentials.example.h to examples/paperdink_bw_4_2/owm_credentials.h
+  - Fill in Wi‑Fi SSID/PASSWORD, OWM API key, and location (LAT/LON)
+
+Notes:
+- examples/**/owm_credentials.h is listed in .gitignore and will not be committed
+- When contributing, only update the *.example.h files
+- If you previously committed secrets, please rotate the keys and contact a maintainer for history cleanup guidance
+
 
 For standalone use, download the ZIP file to your desktop.
 
@@ -53,7 +71,7 @@ Download the software to your Arduino's library directory.
    - Waveshare_4_2
    - Waveshare_7_5
    - Waveshare_7_5_T7 (newer 800x480 version of the older 640x384)
-   
+
    Code requires [GxEPD2 library](https://github.com/ZinggJM/GxEPD2)
    - which needs [Adafruit_GFX](https://github.com/adafruit/Adafruit-GFX-Library
    - an also requires U8g2_for_Adafruit_GFX
@@ -63,10 +81,10 @@ Download the software to your Arduino's library directory.
 3. Edit the owm_credentials.h file in the IDE (TAB at top of IDE) and change your Language, Country, choose your units Metric or Imperial and be sure to find a valid weather station location on OpenWeatherMap, if your display has all blank values your location does not exist!
 
 4. If your are using the older style Waveshare HAT then you need to use:
-  
-  **display.init(); //for older Waveshare HAT's 
-  
-  In the InitialiseDisplay() function, comment out the variant as required 
+
+  **display.init(); //for older Waveshare HAT's
+
+  In the InitialiseDisplay() function, comment out the variant as required
 
 5. Save your files.
 
